@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ragdoll Parkour</title>
+<style>
+:root{--sky:#cfe6f5;--far:#b5cfe0;--plat:#4a5568;--top:#2f3846;--crate:#a3703f;--stone:#2c323e;--mortar:#5b667a;--limb:#e8734a;--limb2:#b4492a;--skin:#f2c9a0;--ink:#1b1f27;--hudbg:rgba(255,255,255,.75);color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--sky:#141b2b;--far:#1c2640;--plat:#5b6578;--top:#8895ad;--crate:#b98350;--stone:#232836;--mortar:#4a5368;--limb:#ff8a5c;--limb2:#c4552f;--skin:#f2c9a0;--ink:#e8ecf4;--hudbg:rgba(20,27,43,.75)}}
+:root[data-theme="dark"]{--sky:#141b2b;--far:#1c2640;--plat:#5b6578;--top:#8895ad;--crate:#b98350;--stone:#232836;--mortar:#4a5368;--limb:#ff8a5c;--limb2:#c4552f;--skin:#f2c9a0;--ink:#e8ecf4;--hudbg:rgba(20,27,43,.75)}
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+body{background:var(--sky);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+canvas{display:block;width:100%;height:100%}
+.hud{position:fixed;left:12px;top:calc(12px + env(safe-area-inset-top,0px));background:var(--hudbg);padding:8px 12px;border-radius:10px;pointer-events:none}
+#ui{display:none}body.t #ui{display:block}
+#zl{position:fixed;left:0;top:70px;bottom:0;width:58%;touch-action:none}
+#stick{position:fixed;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;border:2px solid var(--ink);background:var(--hudbg);opacity:.35;pointer-events:none;transition:opacity .15s}
+#stick i{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:var(--limb)}
+.b{position:fixed;border-radius:50%;border:2px solid var(--ink);background:var(--hudbg);color:var(--ink);font:26px system-ui;padding:0;touch-action:none;-webkit-tap-highlight-color:transparent}
+.b:active{filter:brightness(.85)}
+#bj{right:calc(22px + env(safe-area-inset-right,0px));bottom:calc(30px + env(safe-area-inset-bottom,0px));width:96px;height:96px;background:var(--limb)}
+#bd{right:calc(132px + env(safe-area-inset-right,0px));bottom:calc(30px + env(safe-area-inset-bottom,0px));width:64px;height:64px}
+#bl{right:calc(12px + env(safe-area-inset-right,0px));top:calc(12px + env(safe-area-inset-top,0px));width:44px;height:44px;font-size:18px}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="ui"><div id="zl"></div><div id="stick"><i id="knob"></i></div><button class="b" id="bj">▲</button><button class="b" id="bd">▼</button><button class="b" id="bl">R</button></div>
+<div class="hud" id="hud"></div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hudEl=document.getElementById('hud');
+let W,H,DPR;
+function rs(){DPR=devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*DPR;cv.height=H*DPR}
+addEventListener('resize',rs);rs();
+const C={};
+function readC(){const s=getComputedStyle(document.documentElement);for(const n of['sky','far','plat','top','crate','stone','mortar','limb','limb2','skin','ink'])C[n]=s.getPropertyValue('--'+n).trim()}
+readC();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>setTimeout(readC,50));
+
+const DT=1/120,G=1500,TH=22,SH=22,TO=30,NK=13,UA=16,FA=16;
+const P={};['head','chest','hip','elL','haL','elR','haR','knL','ftL','knR','ftR'].forEach(n=>P[n]={x:0,y:0,px:0,py:0,w:1});
+const S=[['head','chest',NK],['chest','hip',TO],['chest','elL',UA],['elL','haL',FA],['chest','elR',UA],['elR','haR',FA],['hip','knL',TH],['knL','ftL',SH],['hip','knR',TH],['knR','ftR',SH]];
+const LIM=[['hip','ftL',14],['hip','ftR',14],['chest','haL',10],['chest','haR',10],['head','hip',36],['chest','knL',14],['chest','knR',14]];
+
+/* ---------- мир ---------- */
+const boxes=[];let gx=700,gt=420;
+const add=(x,y,w,h=900,c=0,cl=0)=>boxes.push({x,y,w,h,c,cl});
+add(-440,-300,40,1500);add(-400,420,1100);
+function gen(until){
+  const lim=P.hip.x-2500;for(let i=boxes.length-1;i>=0;i--)if(boxes[i].x+boxes[i].w<lim)boxes.splice(i,1);
+  while(gx<until){let r=Math.random();if(gt<260&&Math.random()<.7)r=.85;let w;
+    if(r<.2){w=180+Math.random()*160;add(gx,gt,w);gx+=w}
+    else if(r<.4){gx+=70+Math.random()*70;gt=Math.min(540,Math.max(200,gt+Math.random()*90-35));w=200+Math.random()*120;add(gx,gt,w);gx+=w}
+    else if(r<.6){w=280+Math.random()*120;add(gx,gt,w);const hh=20+Math.random()*20;add(gx+100+Math.random()*100,gt-hh,24+Math.random()*10,hh,1);gx+=w}
+    else if(r<.78){gt=Math.max(180,gt-(60+Math.random()*90));w=200+Math.random()*100;add(gx,gt,w,900,0,0);gx+=w}
+    else if(r<.9){gt=Math.min(540,gt+60+Math.random()*80);w=200+Math.random()*100;add(gx,gt,w);gx+=w}
+    else if(gt>=380&&Math.random()<.55){gt-=260+Math.random()*90;w=260;add(gx,gt,w,900,0,1);gx+=w}
+    else{gt=Math.max(180,gt-(150+Math.random()*40));w=240;add(gx,gt,w,900,0,0);gx+=w}
+  }
+}
+function groundAt(x,y0){let g=1e9;for(const b of boxes)if(x>=b.x&&x<=b.x+b.w&&b.y>=y0-1&&b.y<g)g=b.y;return g}
+
+/* ---------- состояние ---------- */
+const K={};
+const me={state:'move',face:1,fs:1,cr:0,cap:150,accl:0,w:null,wd:1,pc:0,wallT:0,slide:null,jy:0,dirLast:1,wmode:'climb',wv0:190,ws:0,wrUsed:false,vx:0,vy:0,ground:false,phase:0,t:0,st:0,tv:0,rec:false,blend:1,lean:0,jumpBuf:0,coyote:0,grabCool:0,land:0,ragT:0,limp:false,gT:0,c:null,safe:{x:100,y:379}};
+function place(x,y){const o={head:[0,-43],chest:[0,-30],hip:[0,0],elL:[0,-18],haL:[0,-6],elR:[0,-18],haR:[0,-6],knL:[0,22],ftL:[0,41],knR:[0,22],ftR:[0,41]};for(const k in o){const p=P[k];p.x=p.px=x+o[k][0];p.y=p.py=y+o[k][1]}}
+function respawn(){const s=me.safe;place(s.x,s.y-4);Object.assign(me,{state:'move',vx:0,vy:0,blend:1,limp:false,ground:false,c:null,lean:0})}
+place(100,379);gen(2500);
+
+addEventListener('keydown',e=>{
+  if(!e.repeat){if(e.code==='KeyA')me.dirLast=-1;if(e.code==='KeyD')me.dirLast=1}
+  if(e.code==='ControlLeft'||e.code==='ControlRight'){e.preventDefault();if(!e.repeat)toggleLimp();return}
+  if(e.code==='Space'||e.code==='KeyW'){if(!e.repeat)me.jumpBuf=.15}
+  K[e.code]=1;if(['Space','KeyW','KeyA','KeyS','KeyD'].includes(e.code)||e.ctrlKey)e.preventDefault();
+});
+addEventListener('keyup',e=>{K[e.code]=0});
+addEventListener('blur',()=>{for(const k in K)K[k]=0});
+
+function toggleLimp(){if(me.state==='ragdoll'){if(me.ragT>.3)getUp()}else{me.limp=true;startRagdoll(0,-60)}}
+function startRagdoll(ix,iy){
+  const vx=me.vx*.5+ix,vy=me.vy*.7+iy;me.state='ragdoll';me.ragT=0;me.c=null;
+  for(const k in P){const p=P[k],j=.8+Math.random()*.4;p.px=p.x-vx*DT*j;p.py=p.y-vy*DT*j}
+}
+function getUp(){me.state='move';me.limp=false;me.blend=0;me.vx=me.vy=0;me.ground=false;me.land=0}
+function trip(rec){me.state='stumble';me.st=0;me.tv=me.vx;me.rec=rec||Math.random()<.3}
+
+/* ---------- IK и поза ---------- */
+function ik(ax,ay,tx,ty,l1,l2,f){
+  const dx=tx-ax,dy=ty-ay;let d=Math.hypot(dx,dy)||.01;const a=Math.atan2(dy,dx);
+  d=Math.max(Math.abs(l1-l2)+l1*.62,Math.min(d,l1+l2-.5));
+  const c=Math.acos(Math.max(-1,Math.min(1,(l1*l1+d*d-l2*l2)/(2*l1*d)))),an=a-f*c;
+  return[ax+Math.cos(an)*l1,ay+Math.sin(an)*l1,ax+Math.cos(a)*d,ay+Math.sin(a)*d];
+}
+function hermite(ts,ys,t){
+  let i=0;while(i<ts.length-2&&t>ts[i+1])i++;
+  const h=ts[i+1]-ts[i],u=(t-ts[i])/h,sl=j=>(ys[j+1]-ys[j])/(ts[j+1]-ts[j]),m=j=>j===0?sl(0):j===ts.length-1?sl(j-1):(sl(j-1)+sl(j))/2;
+  const m0=m(i)*h,m1=m(i+1)*h,u2=u*u,u3=u2*u;
+  return(2*u3-3*u2+1)*ys[i]+(u3-2*u2+u)*m0+(-2*u3+3*u2)*ys[i+1]+(u3-u2)*m1;
+}
+const cl01=x=>Math.max(0,Math.min(1,x)),mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+function legHeight(){
+  let l=41-17*me.cr;
+  if(me.state==='move'&&me.ground)l-=Math.min(1,Math.abs(me.vx)/60)*4*Math.abs(Math.cos(me.phase))*(1-me.cr*.6);
+  if(me.state==='stumble')l-=5;
+  return l-me.land*50;
+}
+function pose(){
+  const h=P.hip,f=me.face,s=me.state,L=legHeight(),T={},cr=me.cr;let lean=0,abs=false,snap=false,headK=.5,hov=null;
+  me.fs+=(f-me.fs)*(1-Math.exp(-12*DT));const fs=me.fs;
+  const ft=[[0,0],[0,0]],ha=[[0,0],[0,0]],gnd=x=>Math.min(groundAt(x,h.y-24),h.y+L+10);
+  if(s==='climb'){
+    const c=me.c,d=c.d,wx=c.wx,top=c.top;abs=true;
+    if(c.ph!=='pull'){
+      lean=c.ph==='reach'?.1:.14;
+      for(let i=0;i<2;i++){ha[i]=[wx+d*(4+i*3),top-4];ft[i]=[wx-d*(5+i*3),h.y+36+Math.sin(me.t*2.1+i*2)*3]}
+    }else{
+      const u=c.u,e=Math.max(0,u-1);lean=u<1?.3:.45*(1-e)+.05;
+      for(let i=0;i<2;i++)ha[i]=[wx+d*(5+10*e+i*3),top-4];
+      if(u<1){for(let i=0;i<2;i++)ft[i]=[wx-d*4,h.y+30+Math.sin(c.t*22+i*Math.PI)*8]}
+      else{ft[0]=[wx+d*(4+16*e),top-2];ft[1]=[wx-d*4*(1-e),(h.y+30)*(1-e)+(top-2)*e]}
+    }
+  }else if(s==='wall'){
+    const d=me.wd,w=me.w,wx=d>0?w.x:w.x+w.w,A=7;abs=true;snap=true;
+    if(me.wmode==='run'){
+      lean=-.15;hov=.1;
+      const lm=th=>{const u=((th/(2*Math.PI))%1+1)%1;let off,mv=0;
+        if(u<.5)off=A-(u/.5)*2*A;else{const q=(u-.5)/.5;off=-A+2*A*ease(q);mv=Math.sin(Math.PI*q)}return[off,mv]};
+      for(let i=0;i<2;i++){
+        const [oh,mh]=lm(me.pc+i*Math.PI),[of,mf]=lm(me.pc+(1-i)*Math.PI);
+        ha[i]=[wx-d*(5.5+6*mh),h.y-22.6-oh];ft[i]=[wx-d*(4+5*mf),h.y+28-of];
+      }
+    }else{
+      /* лазание по камням: каждая конечность стоит на своём камне и переставляется по очереди */
+      if(!me.lb)initLb();
+      const mvH=me.lb[0].t<1?1:me.lb[1].t<1?-1:0;
+      lean=-.2+.05*mvH*Math.sin(Math.PI*Math.min(me.lb[0].t<1?me.lb[0].t:me.lb[1].t,1));hov=.05;
+      for(let i=0;i<2;i++){ha[i]=limbPos(me.lb[i],wx,d,true);ft[i]=limbPos(me.lb[2+i],wx,d,false)}
+    }
+  }else if(s==='vault'){
+    /* прыжок через козла: толчок, группировка, упор руками в край, ноги отброшены, вынос вперёд, мягкое приземление */
+    const c=me.c,d=c.d,t=cl01(c.t/c.T),tc=c.tc,tr=tc+.2;abs=true;snap=true;headK=.3;
+    lean=.25+1.05*ease(cl01(t/Math.max(.1,tc-.04)))-1.1*ease(cl01((t-tr)/Math.max(.15,.9-tr)));
+    const P0=[c.p0,c.top-3.6],P1=[c.p1,c.top-3.6];
+    const rc=ease(cl01((t-(tc-.22))/.2)),ro=ease(cl01((t-tr)/.12));
+    ha[0]=mix(mix([h.x-fs*10,h.y-4],P0,rc),[h.x+fs*18,h.y-30],ro);
+    ha[1]=mix(mix([h.x-fs*6,h.y+2],P1,rc),[h.x+fs*10,h.y-24],ro);
+    const lg=c.wide?c.top:Math.min(groundAt(h.x+d*12,c.top-60),h.y+50);
+    const tk=ease(cl01((t-.08)/.1)),st=ease(cl01((t-(tc-.08))/.1)),ul=ease(cl01((t-tr)/.3));
+    const f0=mix(mix([h.x-fs*6,h.y+40],[h.x-fs*10,h.y+16],tk),[h.x-fs*26,h.y-4],st);
+    const f1=mix([h.x+fs*14,h.y+14],[h.x+fs*10,h.y+10],st);
+    ft[0]=mix(f0,[h.x-fs*8,lg],ul);ft[1]=mix(f1,[h.x+fs*10,lg],ul);
+  }else if(s==='step'){
+    /* низкий подъём: упор рукой, шаг на уступ, выпрямление */
+    const c=me.c,d=c.d,t=cl01(c.t/c.T);abs=true;snap=true;headK=.4;
+    lean=.05+.5*ease(cl01(t/.25))*(1-ease(cl01((t-.5)/.45)));
+    const hp=ease(cl01((t-.05)/.15))*(1-ease(cl01((t-.7)/.2)));
+    ha[0]=mix([h.x+fs*8,h.y-10],[c.wx+d*7,c.top-3.6],hp);ha[1]=mix([h.x+fs*2,h.y-6],[c.wx+d*2,c.top-3.6],hp);
+    const q0=cl01((t-.12)/.4),q1=cl01((t-.45)/.4);
+    const f0=mix([c.wx-d*14,c.gy],[c.wx+d*10,c.top-2],ease(q0)),f1=mix([c.wx-d*24,c.gy],[c.wx-d*2,c.top-2],ease(q1));
+    ft[0]=[f0[0],f0[1]-Math.sin(Math.PI*q0)*10];ft[1]=[f1[0],f1[1]-Math.sin(Math.PI*q1)*10];
+  }else if(s==='stumble'){
+    /* падает вперёд: стопы суетливо и неровно пытаются догнать корпус, руки болтаются */
+    const q=me.st,lf=ease(Math.min(1,q/.3)),dur=me.rec?.9:.85;
+    lean=me.rec?(q<.35?.55*lf:.55*(1-ease(Math.min(1,(q-.35)/(dur-.35))))+.05)
+      :.1+.6*lf+.25*ease(Math.max(0,Math.min(1,(q-.4)/.4)));
+    const S=15,ph2=q*20,ctr=6+8*lf;
+    for(let i=0;i<2;i++){
+      const a=ph2+i*Math.PI+Math.sin(q*6+i*2)*.8,u=((a/(2*Math.PI))%1+1)%1,amp=S*(.8+.3*Math.sin(q*9+i));let off,lf2=0;
+      if(u<.5)off=amp-(u/.5)*2*amp;
+      else{const w=(u-.5)/.5;off=-amp+2*amp*ease(w);lf2=Math.sin(Math.PI*w)*8}
+      const fx=h.x+fs*(ctr+off);ft[i]=[fx,gnd(fx)-lf2];
+    }
+    ha[0]=[fs*(14+10*Math.sin(q*11))*lf,(-8-10*(.5+.5*Math.sin(q*9+1)))*lf+10*(1-lf)];
+    ha[1]=[fs*(-6+14*Math.sin(q*13+2))*lf,(-4+12*Math.sin(q*10))*lf+10*(1-lf)];
+  }else if(me.ground){
+    const sp=Math.abs(me.vx),k=Math.min(1,sp/50),rs=Math.min(1,sp/250),sr=Math.max(0,(sp-150)/100),ph=me.phase;
+    const kk=.07+.05*cr,S=Math.PI/(2*kk),lift=9-5*cr+4*sr;
+    lean=.04+rs*.22+sr*.08+cr*.5+Math.max(-.15,Math.min(.18,me.accl*me.face/1800))*(1-cr*.5)+.025*Math.sin(2*ph)*k+.012*Math.sin(me.t*1.6)*(1-k);
+    for(let i=0;i<2;i++){
+      const a=ph+i*Math.PI,u=((a/(2*Math.PI))%1+1)%1;let off,lf=0;
+      if(u<.5)off=S-(u/.5)*2*S;                       /* опора: стопа линейно едет назад */
+      else{const w=(u-.5)/.5;off=-S+2*S*ease(w);lf=Math.sin(Math.PI*w)*lift}
+      const fx=h.x+fs*off*k+(i?6:-6)*(1-k)*(1-cr*.4);
+      ft[i]=[fx,gnd(fx)-lf*k];
+      const sw=-Math.cos(a)*(.3+.5*rs+.35*sr)*k*(1-cr*.5)+(i?.08:-.05)+Math.sin(me.t*1.6+i)*.02*(1-k);
+      ha[i]=[fs*(Math.sin(sw)*26+cr*10),Math.cos(sw)*(24-k*3-cr*8)];
+    }
+  }else if(me.slide){
+    /* падает вдоль стены: тянется руками вверх, скребёт ногами */
+    const sd=me.slide.d,wx=me.slide.wx,w=Math.sin(me.t*16);abs=true;lean=-.25;
+    ha[0]=[wx-sd*5,h.y-24+w*4];ha[1]=[wx-sd*5,h.y-18-w*4];
+    ft[0]=[wx-sd*5,h.y+36-w*3];ft[1]=[wx-sd*5,h.y+32+w*3];
+  }else{
+    const vy=me.vy,up=vy<0,w=Math.sin(me.t*12);lean=.12-Math.max(-.3,Math.min(.4,vy*.0004));
+    ft[0]=[h.x+fs*(up?16:10),h.y+(up?24:36)+w*2];ft[1]=[h.x-fs*(up?8:12),h.y+(up?32:40)-w*2];
+    ha[0]=[fs*(up?14:22),up?-26:-12+w*3];ha[1]=[-fs*(up?6:16),up?-20:-16-w*3];
+  }
+  me.lean=snap?lean:me.lean+(lean-me.lean)*(1-Math.exp(-7*DT));
+  const ch=[h.x+fs*Math.sin(me.lean)*TO,h.y-Math.cos(me.lean)*TO],hl=hov!==null?hov:me.lean*headK;
+  T.chest=ch;T.head=[ch[0]+fs*Math.sin(hl)*NK,ch[1]-Math.cos(hl)*NK];
+  for(let i=0;i<2;i++){const n=i?'R':'L',hp=abs?ha[i]:[ch[0]+ha[i][0],ch[1]+ha[i][1]];
+    /* локоть: рука вниз — сгиб назад, рука вверх — тоже назад/вниз от стены */
+    const dy=hp[1]-ch[1],sg=(s==='wall'||(s==='move'&&me.slide))?-f:-f*Math.max(-1,Math.min(1,dy/12));
+    const a=ik(ch[0],ch[1],hp[0],hp[1],UA,FA,sg);T['el'+n]=[a[0],a[1]];T['ha'+n]=[a[2],a[3]];
+    const b=ik(h.x,h.y,ft[i][0],ft[i][1],TH,SH,f);T['kn'+n]=[b[0],b[1]];T['ft'+n]=[b[2],b[3]]}
+  return T;
+}
+
+/* ---------- камни ---------- */
+const hs=(j,k)=>{const v=Math.sin(j*12.9898+k*78.233)*43758.5453;return v-Math.floor(v)};
+const rowY=j=>j*32+hs(j,1)*6-3,rad=j=>3.6+hs(j,2)*2;
+/* участок грани стены, открытый воздуху (там и только там есть камни) */
+function rockZone(b,d){
+  if(!b.cl)return null;
+  const xs=d>0?b.x-2:b.x+b.w+2;let bot=b.y+420;
+  for(const o of boxes){if(o===b||xs<o.x||xs>o.x+o.w)continue;if(o.y<=b.y+1)return null;if(o.y<bot)bot=o.y}
+  return bot-b.y>=110?[b.y,bot]:null;
+}
+const rockOK=(w,d,y)=>{const z=rockZone(w,d);return !!z&&y>z[0]+20&&y<z[1]};
+function limbPos(l,wx,d,hand){
+  const lo=me.w.y+6,hi=me.zb-2,to=[wx-d*(rad(l.j)-2.5),Math.max(lo,Math.min(hi,rowY(l.j)))];
+  if(l.t>=1)return to;const e=ease(l.t),a=Math.sin(Math.PI*e);
+  return[l.fx+(to[0]-l.fx)*e-d*(hand?9:6)*a,l.fy+(to[1]-l.fy)*e-a*(hand?4:2)];
+}
+function initLb(){
+  const h=P.hip,d=me.wd,w=me.w,wx=d>0?w.x:w.x+w.w;me.lb=[];
+  for(const y of[h.y-50,h.y-42,h.y+34,h.y+26])me.lb.push({j:Math.round(y/32),t:1,fx:wx,fy:y});
+}
+function limbsUpd(dt,dy){
+  if(!me.lb)initLb();
+  const h=P.hip,d=me.wd,w=me.w,wx=d>0?w.x:w.x+w.w;
+  for(const l of me.lb)if(l.t<1)l.t=Math.min(1,l.t+dt/.24);
+  me.wacc+=Math.abs(dy)*dt;
+  while(me.wacc>=8){me.wacc-=8;
+    for(let q=0;q<4;q++){const k=[0,3,1,2][(me.wseq+q)%4],l=me.lb[k],hand=k<2;
+      if(l.t<1)continue;const j=Math.round((hand?h.y-48:h.y+30)/32);if(j===l.j)continue;
+      const p=limbPos(l,wx,d,hand);l.fx=p[0];l.fy=p[1];l.j=j;l.t=0;me.wseq=(me.wseq+q+1)%4;break}
+  }
+}
+/* ---------- карабканье ---------- */
+function setFace(f){
+  if(f===me.face)return;const h=P.hip;
+  for(const k in P){if(k==='hip')continue;const p=P[k];p.x=2*h.x-p.x;p.px=2*h.x-p.px}
+  me.face=f;me.fs=f;
+}
+function startClimb(w,d){
+  me.state='climb';setFace(d);me.jumpBuf=0;me.vx=me.vy=0;me.ground=false;
+  me.c={d,wx:d>0?w.x:w.x+w.w,top:w.y,ph:'reach',t:0,u:0,sx:P.hip.x,sy:P.hip.y};
+}
+const ease=x=>x*x*(3-2*x);
+function updClimb(dt){
+  const c=me.c,h=P.hip,d=c.d,hx=c.wx-d*10,hy0=c.top+50;c.t+=dt;
+  if(K.KeyS&&c.ph!=='pull'){Object.assign(me,{state:'move',vx:-d*40,vy:0,ground:false,grabCool:.5,c:null});return}
+  if(c.ph==='reach'){const e=ease(Math.min(1,c.t/.22));h.x=c.sx+(hx-c.sx)*e;h.y=c.sy+(hy0-c.sy)*e;if(c.t>=.22){c.ph='hang';c.t=0}}
+  else if(c.ph==='hang'){
+    h.x=hx+Math.sin(c.t*1.7)*1.2;h.y=hy0+Math.sin(c.t*2.3)*1.5;
+    if(c.t>.12&&(K.KeyW||K.Space||me.jumpBuf>0||(d>0?K.KeyD:K.KeyA))){c.ph='pull';c.t=0;c.u=0;me.jumpBuf=0}
+  }else{
+    c.u+=dt/(c.u<1?.6:.4);const u=Math.min(2,c.u);
+    if(u<1){const e=ease(u);h.x=hx;h.y=hy0-56*e}
+    else{const e=ease(u-1);h.x=hx+d*24*e;h.y=c.top-6-35*e}
+    if(c.u>=2){Object.assign(me,{state:'move',vx:d*70,vy:0,ground:false,grabCool:.3,blend:1,phase:0,c:null});h.y=c.top-41}
+  }
+  h.px=h.x;h.py=h.y;
+}
+
+/* ---------- прыжок-вольт, подъём, стена ---------- */
+function findLow(d){
+  const h=P.hip,feetY=h.y+legHeight(),rg=30+.22*Math.abs(me.vx);let best=null,bg=1e9;
+  for(const b of boxes){const hh=feetY-b.y;if(hh<=16||hh>70||b.y+b.h<=h.y-10)continue;
+    const g=d>0?b.x-(h.x+10):(h.x-10)-(b.x+b.w);if(g>-2&&g<=rg&&g<bg){bg=g;best=b}}
+  return best;
+}
+function sideWall(h,d){
+  for(const b of boxes){if(b.y>=h.y-6||b.y+b.h<=h.y+20)continue;
+    const g=d>0?b.x-(h.x+10):(h.x-10)-(b.x+b.w);if(g>-4&&g<=8)return b}
+  return null;
+}
+function startVault(b,d){
+  const h=P.hip,top=b.y,wide=b.w>70,v0=Math.max(Math.abs(me.vx),150),face=d>0?b.x:b.x+b.w;
+  const ex=wide?(d>0?b.x+36:b.x+b.w-36):(d>0?b.x+b.w+22:b.x-22);
+  const g=wide?top:groundAt(ex,top-60),ey=(g>1e8?h.y+61:g)-41,dx=ex-h.x;
+  const T=Math.max(.5,Math.min(.75,Math.abs(dx)/v0*1.15));
+  const tc=Math.max(.18,Math.min(.5,(face-d*22-h.x)/dx));
+  const cx=h.x+dx*tc+d*29,off=Math.max(2,Math.min(Math.min(b.w-4,16),d*(cx-face)));
+  const yr=ey<top-34?ey+2:top-34;
+  me.c={d,b,top,wide,sx:h.x,ex,t:0,T,v0,tc,p0:face+d*off,p1:face+d*Math.max(1,off-6),ts:[0,tc,tc+.2,1],ys:[h.y,top-25,yr,ey]};
+  me.state='vault';setFace(d);me.jumpBuf=0;me.ground=false;me.vx=me.vy=0;
+}
+function updVault(dt){
+  const c=me.c,h=P.hip;c.t+=dt;const t=cl01(c.t/c.T);
+  h.x=c.sx+(c.ex-c.sx)*t;
+  h.y=hermite(c.ts,c.ys,t)+3*Math.sin(Math.PI*cl01(t/.1));
+  h.px=h.x;h.py=h.y;
+  if(t>=1)Object.assign(me,{state:'move',vx:c.d*c.v0*.95,vy:0,ground:true,blend:1,c:null,phase:0,land:.18});
+}
+function startStep(w,d){
+  const h=P.hip;
+  me.c={d,wx:d>0?w.x:w.x+w.w,top:w.y,t:0,T:.55,sx:h.x,sy:h.y,gy:h.y+legHeight(),v0:Math.min(Math.abs(me.vx),120)};
+  me.state='step';setFace(d);me.jumpBuf=0;me.ground=true;me.vx=me.vy=0;
+}
+function updStep(dt){
+  const c=me.c,h=P.hip,d=c.d;c.t+=dt;const t=cl01(c.t/c.T),ex=c.wx+d*16,ey=c.top-41;
+  h.x=c.sx+(ex-c.sx)*ease(cl01((t-.2)/.7));
+  h.y=c.sy+(ey-c.sy)*ease(cl01(t/.85))-6*Math.sin(Math.PI*t);
+  h.px=h.x;h.py=h.y;
+  if(t>=1)Object.assign(me,{state:'move',vx:d*Math.max(c.v0,50),vy:0,ground:true,blend:1,c:null});
+}
+function startWall(w,d,run){
+  setFace(d);
+  Object.assign(me,{state:'wall',lb:null,wacc:0,wseq:0,zb:1e9,wd:d,w,vx:0,vy:0,ground:false,jumpBuf:0,pc:0,wallT:0,c:null,wmode:run?'run':'climb',ws:0});
+  if(run)me.wrUsed=true;
+}
+function updWall(dt){
+  const h=P.hip,d=me.wd,w=me.w,wx=d>0?w.x:w.x+w.w,up=K.KeyW||K.Space,down=K.KeyS,away=d>0?K.KeyA:K.KeyD,run=me.wmode==='run';
+  me.wallT+=dt;
+  if(away&&!up){Object.assign(me,{state:'move',vx:-d*60,vy:0,ground:false,grabCool:.5,w:null});return}
+  if((up||run)&&w.y>=h.y-80&&w.y<=h.y+20){startClimb(w,d);return}
+  if(!run){const z=rockZone(w,d);if(!z||h.y>z[1]+30){Object.assign(me,{state:'move',vx:-d*40,vy:0,ground:false,grabCool:.5,w:null});return}me.zb=z[1]-2}
+  let dy,v=0;
+  if(run){
+    /* пробежка по гладкой стене: быстро, но силы кончаются через ~2 м */
+    v=Math.max(0,me.wv0*(1-me.ws/115));
+    if(v<35){Object.assign(me,{state:'move',vx:-d*50,vy:0,ground:false,grabCool:.8,w:null});return}
+    dy=-v;me.ws+=v*dt;
+  }else dy=up?-52:(down?60:0);
+  if(down&&groundAt(h.x,h.y-24)-(h.y+41)<=4){Object.assign(me,{state:'move',vx:0,vy:0,ground:false,grabCool:.3,w:null});return}
+  h.y+=dy*dt;h.x+=(wx-d*17-h.x)*Math.min(1,12*dt);
+  if(!run)limbsUpd(dt,dy);
+  me.pc+=run?dt*(8+v*.06):-dy*dt*Math.PI/14;
+  h.px=h.x;h.py=h.y;
+}
+
+/* ---------- управление ---------- */
+function control(dt){
+  const h=P.hip;
+  me.jumpBuf=Math.max(0,me.jumpBuf-dt);me.coyote=Math.max(0,me.coyote-dt);me.grabCool=Math.max(0,me.grabCool-dt);me.land=Math.max(0,me.land-dt);
+  me.cr+=(((K.KeyS&&me.ground&&me.state==='move'&&me.blend>.5)?1:0)-me.cr)*(1-Math.exp(-9*dt));
+  me.slide=null;
+  if(h.y>1100){respawn();return}
+  if(me.state==='stumble'){me.st+=dt;if(me.st>(me.rec?.9:.85)){if(me.rec){me.state='move';me.vx*=.8;me.blend=.8}else{startRagdoll(me.tv*.4,-100);return}}}
+  if(me.state==='climb'){updClimb(dt);return}
+  if(me.state==='wall'){updWall(dt);return}
+  if(me.state==='vault'){updVault(dt);return}
+  if(me.state==='step'){updStep(dt);return}
+  const st=me.state,L=legHeight();
+  me.blend=Math.min(1,me.blend+dt/.7);
+  const can=me.blend>.45&&st==='move',ax=can?(K.KeyD&&K.KeyA?me.dirLast:(K.KeyD?1:0)-(K.KeyA?1:0)):0,crouch=can&&K.KeyS&&me.ground;
+  const sprint=K.ShiftLeft||K.ShiftRight,cap=crouch?80:(sprint&&can?250:150);
+  if(me.ground&&st==='move')me.cap=cap;
+  let tv=ax*(me.ground?cap:Math.max(me.cap,150)),rate,maxA;
+  if(st==='stumble'){
+    /* неуклюже бежит туда, куда падает */
+    const dir=Math.sign(me.tv)||me.face,q=me.st;
+    tv=dir*Math.max(Math.abs(me.tv)*1.05,130)*(me.rec?1-.7*ease(Math.max(0,Math.min(1,(q-.35)/.5))):1);rate=2.5;maxA=600;
+  }else if(ax){const opp=Math.sign(me.vx)===-ax&&Math.abs(me.vx)>30;rate=me.ground?(opp?6:3):1.4;maxA=me.ground?(opp?900:520):500}
+  else{rate=me.ground?5:.25;maxA=me.ground?700:150}
+  const vb=me.vx,lim=maxA*dt;
+  me.vx+=Math.max(-lim,Math.min(lim,(tv-me.vx)*(1-Math.exp(-rate*dt))));
+  me.accl+=((me.vx-vb)/dt-me.accl)*(1-Math.exp(-8*dt));
+  if(ax)setFace(ax);
+  if(can&&me.jumpBuf>0&&me.ground&&Math.abs(me.vx)>=170&&ax===Math.sign(me.vx)){const lb=findLow(ax);if(lb){startVault(lb,ax);return}}
+  if(can&&me.jumpBuf>0&&(me.ground||me.coyote>0)){if(me.ground)me.jy=h.y;me.vy=-560;me.ground=false;me.coyote=0;me.jumpBuf=0}
+  h.y+=me.vy*dt;
+  const gy=groundAt(h.x,h.y-24),gap=gy-(h.y+L);
+  if(me.vy>=0&&gap<=2){
+    if(!me.ground){const iv=me.vy;
+      if(iv>950){startRagdoll(me.vx*.6,-80);return}
+      if(iv>680){me.ground=true;trip(true)}else if(iv>250)me.land=.18}
+    me.ground=true;me.vy=0;me.wrUsed=false;h.y+=(gy-L-h.y)*Math.min(1,(5+9*me.blend)*dt);
+  }else{if(me.ground){me.ground=false;me.coyote=.1;me.jy=h.y}me.vy+=G*dt}
+  if(!me.ground&&me.vy>100&&st==='move'){
+    /* падение вдоль стены: пытается схватиться и притормаживает */
+    const sd0=ax||me.face;let sb=sideWall(h,sd0),sd=sd0;if(!sb){sb=sideWall(h,-sd0);sd=-sd0}
+    if(sb){me.slide={d:sd,wx:sd>0?sb.x:sb.x+sb.w};setFace(sd);if(me.vy>190)me.vy-=Math.min(me.vy-190,2100*dt)}
+  }
+  const nx=h.x+me.vx*dt,d=ax||Math.sign(me.vx);let moved=false;
+  if(d){
+    const feetY=h.y+L;let w=null,wg=9;
+    for(const b of boxes){
+      if(b.y>=feetY-16||b.y+b.h<=h.y-10)continue;
+      if(me.state==='stumble'&&feetY-b.y<=42)continue;
+      const g=d>0?b.x-(h.x+10):(h.x-10)-(b.x+b.w);
+      if(g>-6&&g<=Math.max(2,Math.abs(me.vx)*dt+1)&&g<wg){wg=g;w=b}
+    }
+    if(w){
+      const hh=feetY-w.y,run=Math.sign(me.vx)===d&&me.state==='move';
+      if(me.ground&&hh<=70&&Math.abs(me.vx)>=190&&run){trip(false);h.x=nx;moved=true}
+      else if(can&&ax===d&&me.ground&&hh<=70&&Math.abs(me.vx)<190&&me.grabCool<=0){startStep(w,d);return}
+      else if(can&&ax===d&&w.y>=h.y-88&&w.y<=h.y+20&&me.grabCool<=0&&(!me.ground||K.KeyW||K.Space||me.jumpBuf>0)){startClimb(w,d);return}
+      else if(can&&ax===d&&me.grabCool<=0&&w.cl&&rockOK(w,d,h.y)&&w.y<h.y-88&&(K.KeyW||K.Space)&&(me.ground?w.y<h.y-192:me.vy>-80)){startWall(w,d,false);return}
+      else if(can&&ax===d&&me.grabCool<=0&&!w.cl&&!me.wrUsed&&sprint&&!me.ground&&w.y<h.y-88&&w.y<me.jy-190&&me.vy>-250){startWall(w,d,true);return}
+      else{
+        if(me.ground&&hh>70&&Math.abs(me.vx)>=190&&run){startRagdoll(-d*140,-160);return}
+        me.vx=0;h.x=d>0?w.x-10:w.x+w.w+10;moved=true;
+      }
+    }
+  }
+  if(!moved)h.x=nx;
+  h.px=h.x;h.py=h.y;
+  if(me.ground)me.phase+=Math.abs(me.vx)*dt*(.07+.05*me.cr);
+  if(me.ground&&me.state==='move'){me.gT+=dt;if(me.gT>.5){me.safe={x:h.x,y:h.y};me.gT=0}}else me.gT=0;
+}
+
+/* ---------- физика ---------- */
+function con(a,b,L,min){
+  const A=P[a],B=P[b],dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy)||.001;
+  if(min&&d>=L)return;const ws=A.w+B.w;if(!ws)return;const k=(d-L)/d/ws;
+  A.x+=dx*k*A.w;A.y+=dy*k*A.w;B.x-=dx*k*B.w;B.y-=dy*k*B.w;
+}
+function coll(p,r,full){
+  for(const b of boxes){
+    if(p.x+r<b.x||p.x-r>b.x+b.w||p.y+r<b.y||p.y-r>b.y+b.h)continue;
+    const l=p.x+r-b.x,rt=b.x+b.w-p.x+r,t=p.y+r-b.y,bt=b.y+b.h-p.y+r,m=Math.min(l,rt,t,bt),vx=p.x-p.px,vy=p.y-p.py;p.ct=3;
+    if(m===t){p.y-=t;if(full){p.py=p.y+Math.min(0,vy)*.1;p.px=p.x-vx*.82}}
+    else if(m===l){p.x-=l;if(full)p.px=p.x}
+    else if(m===rt){p.x+=rt;if(full)p.px=p.x}
+    else{p.y+=bt;if(full)p.py=p.y}
+  }
+}
+/* ---------- суставы: ограничения углов ---------- */
+const DEG=Math.PI/180;
+function angLimit(an,bn,Dx,Dy,k,lo,hi,kids){
+  const A=P[an],B=P[bn];if(B.ct>0||(kids&&kids.some(q=>P[q].ct>0)))return;
+  const tx=B.x-A.x,ty=B.y-A.y,tl=Math.hypot(tx,ty)||1,dl=Math.hypot(Dx,Dy)||1,dx=Dx/dl,dy=Dy/dl;
+  const th=k*Math.atan2(dx*ty-dy*tx,dx*tx+dy*ty)/DEG,m=a=>((a%360)+360)%360,thn=lo+m(th-lo);
+  if(thn<=hi)return;
+  const t=(thn-hi<lo+360-thn?hi:lo)*DEG*k,c=Math.cos(t),sn=Math.sin(t);
+  const ddx=A.x+(dx*c-dy*sn)*tl-B.x,ddy=A.y+(dx*sn+dy*c)*tl-B.y;
+  B.x+=ddx;B.y+=ddy;B.px=B.x-(A.x-A.px);B.py=B.y-(A.y-A.py); /* упор: скорость относительно родителя гасится */
+}
+/* шарнир: колено гнётся только назад, локоть только вперёд, сгиб не больше 150°; ограничение поворачивает дистальный сегмент */
+function bend(an,mn,cn,sgn,maxF){
+  const A=P[an],M=P[mn],C=P[cn];if(C.ct>0||M.ct>0)return;
+  const tx=M.x-A.x,ty=M.y-A.y,sx=C.x-M.x,sy=C.y-M.y,tl=Math.hypot(tx,ty)||1,sl=Math.hypot(sx,sy)||1;
+  const k=sgn*me.face,psi=k*Math.atan2(tx*sy-ty*sx,tx*sx+ty*sy)/DEG;
+  if(psi>=0&&psi<=maxF)return;
+  const m=a=>((a%360)+360)%360,tg=(m(psi-maxF)<m(-psi)?maxF:0)*DEG*k,c=Math.cos(tg),sn=Math.sin(tg),ux=tx/tl,uy=ty/tl;
+  const ddx=M.x+(ux*c-uy*sn)*sl-C.x,ddy=M.y+(ux*sn+uy*c)*sl-C.y;
+  C.x+=ddx;C.y+=ddy;C.px=C.x-(M.x-M.px);C.py=C.y-(M.y-M.py);
+}
+function joints(rg){
+  if(!rg){for(const n of['L','R'])bend('hip','kn'+n,'ft'+n,1,150);return}
+  const Dx=P.hip.x-P.chest.x,Dy=P.hip.y-P.chest.y,f=me.face;
+  for(const n of['L','R']){
+    angLimit('hip','kn'+n,Dx,Dy,-f,-30,115,['ft'+n]);bend('hip','kn'+n,'ft'+n,1,150);
+    angLimit('chest','el'+n,Dx,Dy,-f,-65,205,['ha'+n]);bend('chest','el'+n,'ha'+n,-1,150);
+  }
+  angLimit('chest','head',-Dx,-Dy,f,-50,65);
+}
+function step(){
+  me.t+=DT;for(const k in P)if(P[k].ct>0)P[k].ct--;
+  if(me.state!=='ragdoll')control(DT);
+  const rg=me.state==='ragdoll';let T=null,cl=false;
+  for(const k in P)P[k].w=1;P.hip.w=rg?.5:0;
+  const rax=((K.KeyD?1:0)-(K.KeyA?1:0))*350;
+  for(const k in P){const p=P[k];
+    if(k==='hip'&&!rg){p.px=p.x;p.py=p.y;continue}
+    const dm=rg?.997:.78;let vx=(p.x-p.px)*dm,vy=(p.y-p.py)*dm;if(rg)vx+=rax*DT*DT;
+    p.px=p.x;p.py=p.y;p.x+=vx;p.y+=vy+G*DT*DT*(rg?1:.4)}
+  if(!rg){
+    T=pose();cl=['climb','wall','step','vault'].includes(me.state);const fade=(me.state==='stumble'&&!me.rec)?1-.85*ease(Math.max(0,Math.min(1,(me.st-.55)/.3))):1;
+    for(const k in T){const hand=cl&&k[0]==='h'&&k!=='head',a=(1-Math.exp(-(hand?45:20)*DT))*me.blend*fade,p=P[k];
+      p.x+=(T[k][0]-p.x)*a;p.y+=(T[k][1]-p.y)*a}
+  }
+  for(let i=0;i<(rg?10:6);i++){
+    for(const s of S)con(s[0],s[1],s[2],0);for(const s of LIM)con(s[0],s[1],s[2],1);
+    joints(rg);
+    for(const k in P){if(k==='hip'&&!rg)continue;coll(P[k],k==='head'?9:3.5,false)}
+  }
+  for(const k in P){if(k==='hip'&&!rg)continue;coll(P[k],k==='head'?9:3.5,true)}
+  if(T&&cl){/* жёсткая посадка рук и ног точно в цель — без застревания в коллизиях */
+    const a=1-Math.exp(-40*DT),full=me.state==='wall'||me.state==='climb';
+    for(const k in T){const hl=(k[0]==='h'&&k!=='head')||k[0]==='e';if(!(full||hl))continue;const p=P[k];p.x+=(T[k][0]-p.x)*a;p.y+=(T[k][1]-p.y)*a;p.px=p.x;p.py=p.y}}
+  if(rg){
+    me.ragT+=DT;const h=P.hip,sp=Math.hypot(h.x-h.px,h.y-h.py)/DT;
+    if(!me.limp&&me.ragT>1&&sp<90&&(K.KeyA||K.KeyD||K.KeyW||K.Space||me.ragT>4))getUp();
+    if(h.y>1100)respawn();
+  }
+}
+
+/* ---------- рендер ---------- */
+const cam={x:100,y:380};
+function limb(a,b,c,w,col){ctx.strokeStyle=col;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(P[a].x,P[a].y);ctx.lineTo(P[b].x,P[b].y);ctx.lineTo(P[c].x,P[c].y);ctx.stroke()}
+/* камни-зацепы: только на открытых воздуху гранях высоких стен */
+function holds(b,v0,v1){
+  ctx.fillStyle=C.stone;
+  for(const d of[1,-1]){const z=rockZone(b,d);if(!z)continue;const wx=d>0?b.x:b.x+b.w;
+    for(let j=Math.ceil((z[0]+16)/32);rowY(j)<z[1]-8;j++){const y=rowY(j);if(y<v0||y>v1)continue;
+      ctx.beginPath();ctx.arc(wx-d*.6,y,rad(j),0,7);ctx.fill()}}
+}
+function draw(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle=C.sky;ctx.fillRect(0,0,W,H);
+  const z=Math.max(.42,Math.min(1.5,H/560,W/820)),par=cam.x*.3,k0=Math.floor(par/300);
+  ctx.fillStyle=C.far;
+  for(let i=0;i<W/(300*z)+2;i++){const idx=k0+i,hg=90+(((idx*7919)%140)+140)%140;ctx.fillRect((idx*300-par)*z,H-hg*z,230*z,hg*z)}
+  ctx.save();ctx.translate(W/2-cam.x*z,H*.6-cam.y*z);ctx.scale(z,z);
+  const x0=cam.x-W/2/z-50,x1=cam.x+W/2/z+50;
+  for(const b of boxes){if(b.x>x1||b.x+b.w<x0)continue;
+    ctx.fillStyle=b.c?C.crate:C.plat;ctx.fillRect(b.x,b.y,b.w,b.h);
+    ctx.fillStyle=b.c?C.limb2:C.top;ctx.fillRect(b.x,b.y,b.w,b.c?3:5);
+    if(b.cl)holds(b,cam.y-H*.6/z-30,cam.y+H*.4/z+30)}
+  ctx.lineCap='round';ctx.lineJoin='round';
+  limb('chest','elR','haR',6,C.limb2);limb('hip','knR','ftR',7,C.limb2);
+  ctx.strokeStyle=C.limb;ctx.lineWidth=11;ctx.beginPath();ctx.moveTo(P.hip.x,P.hip.y);ctx.lineTo(P.chest.x,P.chest.y);ctx.stroke();
+  limb('hip','knL','ftL',7,C.limb);
+  ctx.fillStyle=C.skin;ctx.beginPath();ctx.arc(P.head.x,P.head.y,9,0,7);ctx.fill();
+  ctx.fillStyle=C.ink;ctx.beginPath();ctx.arc(P.head.x+me.fs*4,P.head.y-1,1.6,0,7);ctx.fill();
+  limb('chest','elL','haL',6,C.limb);
+  ctx.restore();
+}
+const NAMES={stumble:'спотыкание',ragdoll:'рэгдолл',wall:'карабканье по стене',vault:'прыжок через препятствие',step:'подъём на уступ'};
+let hf=0;
+function frame(n){
+  acc+=Math.min(.05,(n-last)/1000);last=n;
+  while(acc>=DT){step();acc-=DT}
+  const h=P.hip;
+  cam.x+=(h.x+me.face*60-cam.x)*.06;cam.y+=(h.y-30-cam.y)*.06;
+  gen(h.x+1800);draw();
+  if(++hf%6===0)hudEl.textContent=Math.max(0,Math.floor(h.x/50))+' м';
+  requestAnimationFrame(frame);
+}
+/* ---------- сенсорное управление ---------- */
+const isTouch=matchMedia('(pointer:coarse)').matches||'ontouchstart' in window;
+if(isTouch){
+  document.body.classList.add('t');
+  addEventListener('contextmenu',e=>e.preventDefault());
+  const src={},hold=(k,o,on)=>{(src[k]=src[k]||{})[o]=on?1:0;K[k]=Object.values(src[k]).some(Boolean)?1:0};
+  const zl=document.getElementById('zl'),st=document.getElementById('stick'),kn=document.getElementById('knob'),R=52;
+  let sp=null,ox=0,oy=0,u0=false;
+  const idle=()=>{st.style.left='100px';st.style.top=(innerHeight-110-(parseFloat(getComputedStyle(document.documentElement).paddingBottom)||0))+'px';st.style.opacity=.35;kn.style.transform=''};
+  idle();addEventListener('resize',()=>{if(sp===null)idle()});
+  const mv=e=>{let dx=e.clientX-ox,dy=e.clientY-oy;const m=Math.hypot(dx,dy);if(m>R){dx*=R/m;dy*=R/m}
+    kn.style.transform=`translate(${dx}px,${dy}px)`;
+    hold('KeyA','s',dx<-10);hold('KeyD','s',dx>10);hold('ShiftLeft','s',Math.abs(dx)>R*.8);
+    const u=dy<-R*.6;if(u&&!u0)me.jumpBuf=.15;u0=u;hold('KeyW','s',u);hold('KeyS','s',dy>R*.6)};
+  zl.addEventListener('pointerdown',e=>{if(sp!==null)return;sp=e.pointerId;zl.setPointerCapture(sp);ox=e.clientX;oy=e.clientY;st.style.left=ox+'px';st.style.top=oy+'px';st.style.opacity=1;mv(e)});
+  zl.addEventListener('pointermove',e=>{if(e.pointerId===sp)mv(e)});
+  const end=e=>{if(e.pointerId!==sp)return;sp=null;u0=false;['KeyA','KeyD','ShiftLeft','KeyW','KeyS'].forEach(k=>hold(k,'s',0));idle()};
+  zl.addEventListener('pointerup',end);zl.addEventListener('pointercancel',end);
+  const btn=(id,keys,on)=>{const b=document.getElementById(id),r=e=>{keys.forEach(k=>hold(k,id,0))};
+    b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);keys.forEach(k=>hold(k,id,1));if(on)on()});
+    b.addEventListener('pointerup',r);b.addEventListener('pointercancel',r)};
+  btn('bj',['KeyW','Space'],()=>{me.jumpBuf=.15});btn('bd',['KeyS']);btn('bl',[],toggleLimp);
+}
+let last=performance.now(),acc=0;requestAnimationFrame(frame);
+</script></body></html>
